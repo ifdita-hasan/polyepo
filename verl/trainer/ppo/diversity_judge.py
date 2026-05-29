@@ -161,8 +161,6 @@ async def async_get_cluster_assignments(
         
 async def fetch_all_cluster_assignments_async(groups_data: list[dict]) -> list[List[int]]:
     # 1. Initialize client using the environment key as in your example
-    # "https://generativelanguage.googleapis.com/v1beta/openai/"
-    # api_key=os.environ.get('GEMINI_API_KEY')
     
     # FOR QWEN JUDGE:
     # client = AsyncOpenAI(

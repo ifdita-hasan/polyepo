@@ -63,8 +63,6 @@ import sys
 from collections import defaultdict
 
 
-os.environ['GEMINI_API_KEY'] = '...'
-
 
 POLICY_LOSS_REGISTRY = {}
 
