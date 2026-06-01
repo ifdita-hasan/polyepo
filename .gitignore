@@ -23,7 +23,6 @@ ENV/
 
 # Data files (should not be committed)
 **/data/
-**/models/
 **/checkpoints/
 **/ckpt-*/
 

@@ -245,67 +245,6 @@ def compute_gae_advantage_return(
         advantages = verl_F.masked_whiten(advantages, response_mask)
     return advantages, returns
 
-
-####-----------------------------------
-
-
-# NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
-# @register_adv_est(AdvantageEstimator.GRPO)  # or simply: @register_adv_est("grpo")
-# def compute_grpo_outcome_advantage(
-#     token_level_rewards: torch.Tensor,
-#     response_mask: torch.Tensor,
-#     index: np.ndarray,
-#     epsilon: float = 1e-6,
-#     norm_adv_by_std_in_grpo: str = True,
-# ):
-#     """
-#     Compute advantage for GRPO, operating only on Outcome reward
-#     (with only one scalar reward for each response).
-
-#     Args:
-#         token_level_rewards: `(torch.Tensor)`
-#             shape is (bs, response_length)
-#         response_mask: `(torch.Tensor)`
-#             shape is (bs, response_length)
-#         norm_adv_by_std_in_grpo: (bool)
-#             whether to scale the GRPO advantage.
-#             If True, the advantage is scaled by the std, as in the original GRPO.
-#             If False, the advantage is not scaled, as in Dr.GRPO (https://arxiv.org/abs/2503.20783).
-
-#     Returns:
-#         advantages: `(torch.Tensor)`
-#             shape is (bs, response_length)
-#         Returns: `(torch.Tensor)`
-#             shape is (bs, response_length)
-#     """
-#     scores = token_level_rewards.sum(dim=-1)
-
-#     id2score = defaultdict(list)
-#     id2mean = {}
-#     id2std = {}
-
-#     with torch.no_grad():
-#         bsz = scores.shape[0]
-#         for i in range(bsz):
-#             id2score[index[i]].append(scores[i])
-#         for idx in id2score:
-#             if len(id2score[idx]) == 1:
-#                 id2mean[idx] = torch.tensor(0.0)
-#                 id2std[idx] = torch.tensor(1.0)
-#             elif len(id2score[idx]) > 1:
-#                 id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
-#                 id2std[idx] = torch.std(torch.tensor([id2score[idx]]))
-#             else:
-#                 raise ValueError(f"no score in prompt index: {idx}")
-#         for i in range(bsz):
-#             if norm_adv_by_std_in_grpo:
-#                 scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
-#             else:
-#                 scores[i] = scores[i] - id2mean[index[i]]
-#         scores = scores.unsqueeze(-1) * response_mask
-
-#     return scores, scores
-
 @register_adv_est(AdvantageEstimator.GRPO)
 def compute_grpo_outcome_advantage(
     token_level_rewards: torch.Tensor,
@@ -387,15 +326,7 @@ def compute_polyepo_advantage(
 ) -> tuple[torch.Tensor, torch.Tensor, dict]:
     """
     Compute PolyEPO advantage via set RL with LLM-judged cluster diversity.
-
-    Returns the PolyEPO signal as the training advantage; GRPO advantages are
-    computed inline solely for logging (success rate, pos-adv stats, and the
-    prob_poly/conflict_rate_* metrics).
-
-    LOGIC:
-    1. Diversity = num_clusters/set_size. Note that diversity = 0 if all responses fall into cluster 100.
-       - There is no exception for global collapse at the prompt level.
-    2. For any set x, y_1,..,y_n, f_poly(set) = avg reward * diversity
+    Returns the PolyEPO signal as the training advantage
     """
     print(f"Executing PolyEPO at global step: {global_steps}")
     metrics: dict = {}
@@ -407,17 +338,18 @@ def compute_polyepo_advantage(
     bsz = scores.shape[0]
     device = scores.device
 
+    # group response indices by prompt ID
     id2indices = defaultdict(list)
     for i in range(bsz):
         id2indices[index[i]].append(i)
     group_indices_order = sorted(id2indices.keys())
 
-    # ---------- 1) PolyEPO signal (training advantage) ----------
+    # PolyEPO training advantage 
     adv_sum = torch.zeros_like(scores)
     returns_sum = torch.zeros_like(scores)
     adv_count = torch.zeros_like(scores, dtype=torch.float32)
 
-    # Build api_jobs for prompts with enough responses to form a set
+    # build API jobs for prompts with a full set
     api_jobs = []
     for idx in group_indices_order:
         batch_indices = id2indices[idx]
@@ -429,6 +361,7 @@ def compute_polyepo_advantage(
             "prompt_id": idx,
         })
 
+    # fetch LLM cluster assignments and build prompt -> clusters map 
     if api_jobs:
         print(f"Fetching {len(api_jobs)} cluster assignments (1 per prompt)...")
         all_cluster_assignments = asyncio.run(fetch_all_cluster_assignments_async(api_jobs))
@@ -442,10 +375,12 @@ def compute_polyepo_advantage(
     all_prompt_avg_diversities = []
     all_prompt_var_diversities = []
 
+    # set RL loop: validate clusters, compute set advantages, scatter back 
     with torch.no_grad():
         for idx in group_indices_order:
             batch_indices = id2indices[idx]
             group_size = len(batch_indices)
+            # skip prompts without enough responses or missing cluster judgments
             if group_size < n or idx not in cluster_map:
                 continue
 
@@ -470,7 +405,8 @@ def compute_polyepo_advantage(
             set_cluster_ids_tensor = cluster_assignments_tensor[sampled_group_idx]
             sampled_raw_scores = group_scores[sampled_group_idx]
 
-            # Per-set diversity: |{c in set : c != 100}| / n (cluster-100 penalty)
+            # set diversity = num_clusters / n, where num_clusters is the number of unique clusters in the set (excluding cluster 100)
+            # cluster 100 is reserved for degenerate reponses (e.g., empty, reward hacking behavior) 
             set_diversity_scores = [
                 len(set(c for c in set_cluster_ids_tensor[i].cpu().tolist() if c != 100)) / n
                 for i in range(num_sets)
@@ -480,11 +416,13 @@ def compute_polyepo_advantage(
             all_prompt_avg_diversities.append(set_diversity_tensor.mean())
             all_prompt_var_diversities.append(set_diversity_tensor.var())
 
+            # calculate set advantages 
             avg_raw_scores = sampled_raw_scores.mean(dim=1)  # (num_sets,)
             set_scores = avg_raw_scores * set_diversity_tensor  # (num_sets,)
             baseline = set_scores.mean()
             set_advantages = set_scores - baseline
 
+            # scatter set advantages and returns back to individual responses in the original batch
             indices_to_update = original_batch_idx_for_sets.flatten()
             adv_values_to_add = set_advantages.unsqueeze(-1).expand(-1, n).flatten()
             ret_values_to_add = set_scores.unsqueeze(-1).expand(-1, n).flatten()
@@ -501,6 +439,7 @@ def compute_polyepo_advantage(
     poly_advantages = poly_adv_flat.unsqueeze(-1) * response_mask
     poly_returns = poly_ret_flat.unsqueeze(-1) * response_mask
 
+    # log cluster diversity and per-prompt diversity
     metrics.update(cluster_diversity_metrics(api_jobs, all_cluster_assignments, id2indices, raw_scores))
     if all_prompt_avg_diversities:
         metrics.update({

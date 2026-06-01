@@ -4,12 +4,19 @@
 
 </div>
 
-This is the official PyTorch implementation of our paper "<strong>Poly-EPO: Training Exploratory Reasoning Models</strong>".
+This is the official PyTorch implementation of our paper "<strong>Poly-EPO: Training Exploratory Reasoning Models</strong>" by Ifdita Hasan Orney*, Jubayer Ibn Hamid*, Shreya S Ramanujam, Hengyuan Hu, Shirley Wu, Noah Goodman, Dorsa Sadigh, Chelsea Finn.
 
+<div align="center">
+<a href="https://arxiv.org/abs/2604.17654">
+    <img src="https://img.shields.io/badge/Paper-%23FF2442?style=for-the-badge"></a>
+</div>
+
+
+For any questions related to the codebase, please reach out to [Ifdita Hasan Orney](mailto:ifdi1101@stanford.edu) or [Jubayer Ibn Hamid](mailto:jubayer@stanford.edu).
 
 ## Installation
 
-In order for the installations to go smoothly, make sure you are operating from a GPU machine, typically one compatible with flash attention. It is ideal if you use the same GPU machines that you would use to run your experiments. 
+Before you start installation, make sure you are operating from a GPU machine, typically one compatible with flash attention. It is ideal if you use the same GPU machines that you would use to run your experiments. 
 
 Our installation is the same as that of [maxrl](https://github.com/tajwarfahim/maxrl/tree/main). In particular, follow the steps below to ensure exact match with our environment setting.
 
@@ -60,7 +67,7 @@ Now setup our codebase. Make sure you are inside the project folder, and run
 pip install -e .
 ```
 
-This should finish necessary installations. Note that it is possible that different packages may end up breaking since package versions keep changing, please your own judgement to fix them/reach out to us in case the above setup process leads to error. Thanks!
+You are done with installations! Note that it is possible that different packages may end up breaking since package versions keep changing, please your own judgement to fix them/reach out to us in case the above setup process leads to error. Thanks!
 
 ## Reproducing our experiments
 
@@ -74,6 +81,7 @@ python examples/polyepo_data_preprocess/polaris.py --local_dir /path/to/polaris
 
 # Evaluation dataset
 python examples/polyepo_data_preprocess/aime25.py --local_dir /path/to/aime25
+python examples/polyepo_data_preprocess/aime25.py --local_dir /path/to/aime26
 python examples/polyepo_data_preprocess/beyondaime.py --local_dir /path/to/beyondaime
 python examples/polyepo_data_preprocess/math_500.py --local_dir /path/to/math_500
 python examples/polyepo_data_preprocess/minerva.py --local_dir /path/to/minerva
@@ -82,11 +90,11 @@ python examples/polyepo_data_preprocess/minerva.py --local_dir /path/to/minerva
 2. Now run the following script (modify to run different algorithms/change local file paths appropriately):
 
 ```
-bash qwen3_experiments/qwen3_polyepo_withdrgrpo.sh
+bash qwen3_experiments/qwen3_polyepo.sh
 ```
 
 Note that we use 4xH200 GPUs for our training runs, please change the hyperparameters (or system-specific environment variables) appropriately according to the number of GPUs available in your system.
 
 
 ## Acknowledgements
-The codebase for the algorithm is built on top of [maxrl](https://github.com/tajwarfahim/maxrl/tree/main), and we express our gratitude to the authors of maxrl for providing us with an easy-to-work-with codebase!
+The codebase for Poly-EPO is built on top of [maxrl](https://github.com/tajwarfahim/maxrl/tree/main) and [verl](https://github.com/verl-project/verl), and we express our gratitude to the authors of maxrl for providing us with an easy-to-work-with codebase!

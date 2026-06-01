@@ -11,15 +11,12 @@ from verl.trainer.ppo.cluster_prompts import math_cluster_fn as default_cluster_
 
 load_dotenv()
 
-
-
 #### DIVERSITY AND CLUSTERING FUNCTIONS
 
 # Module-level cluster prompt function - set once during initialization
-# This avoids reading config/file in hot paths (async_get_cluster_assignments)
 _active_cluster_prompt_fn = None
 
-def _load_cluster_prompt_fn_from_file(prompt_file_path: str, prompt_fn_name: str) -> Callable[[str, List[str]], tuple[str, str]]:
+def load_cluster_prompt_fn_from_file(prompt_file_path: str, prompt_fn_name: str) -> Callable[[str, List[str]], tuple[str, str]]:
     """
     Load cluster prompt text from a file and return a function that uses it.
     
@@ -73,7 +70,7 @@ def set_cluster_prompt_fn(prompt_file_path: Optional[str] = None, prompt_fn_name
     global _active_cluster_prompt_fn
     
     if prompt_file_path and prompt_fn_name:
-        custom_fn = _load_cluster_prompt_fn_from_file(prompt_file_path, prompt_fn_name)
+        custom_fn = load_cluster_prompt_fn_from_file(prompt_file_path, prompt_fn_name)
         if custom_fn is not None:
             _active_cluster_prompt_fn = custom_fn
             return
@@ -132,13 +129,7 @@ async def async_get_cluster_assignments(
 
         try:
             # Use the client passed from fetch_all_cluster_assignments_async
-            # completion = await client.chat.completions.create(
-            #     model="Qwen/Qwen3-4B-Instruct-2507", # or your preferred model
-            #     messages=[{"role": "user", "content": full_prompt}],
-            #     response_format={"type": "json_object"},
-            #     temperature=0.0,
-            # )
-
+            # LLM Judge Call 
             completion = await client.chat.completions.create(
                 model="gemini-2.0-flash", # or your preferred model
                 messages=[{"role": "user", "content": full_prompt}],
@@ -160,11 +151,11 @@ async def async_get_cluster_assignments(
             return list(range(1, num_responses + 1))
         
 async def fetch_all_cluster_assignments_async(groups_data: list[dict]) -> list[List[int]]:
-    # 1. Initialize client using the environment key as in your example
+    # Initialize client using the environment key as in your example
     
     # FOR QWEN JUDGE:
     # client = AsyncOpenAI(
-    #     base_url="http://<host>:30126/v1", # Put host url 
+    #     base_url="<host_url>", # Put host url 
     #     api_key="random",
     # )
     
@@ -180,7 +171,7 @@ async def fetch_all_cluster_assignments_async(groups_data: list[dict]) -> list[L
     try:
         tasks = []
         for group in groups_data:
-            # 2. Pass the client instance to the child function
+            # Pass the client instance to the child function
             tasks.append(
                 async_get_cluster_assignments(
                     client,
@@ -190,7 +181,7 @@ async def fetch_all_cluster_assignments_async(groups_data: list[dict]) -> list[L
                 )
             )
 
-        # 3. Gather all tasks. return_exceptions=True prevents one crash from stopping the whole batch
+        # Gather all tasks. return_exceptions=True prevents one crash from stopping the whole batch
         results = await asyncio.gather(*tasks, return_exceptions=True)
         print("Finished fetching all cluster assignments from Gemini.")
 
@@ -200,10 +191,9 @@ async def fetch_all_cluster_assignments_async(groups_data: list[dict]) -> list[L
         return [list(range(1, len(g["responses"]) + 1)) for g in groups_data]
     
     finally:
-        # 4. CRITICAL: Always close the client to prevent memory leaks/SSL warnings
         await client.close()
 
-    # 5. Process results and handle exceptions per individual prompt
+    # Process results and handle exceptions per individual prompt
     final_assignments = []
     for i, res in enumerate(results):
         if isinstance(res, Exception):
